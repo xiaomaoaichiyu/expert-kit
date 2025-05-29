@@ -10,6 +10,7 @@ env:
   LIBTORCH: ${{ github.workspace }}/opt/torch/libtorch
   RUSTUP_TOOLCHAIN: nightly
   TORCH_VERSION: 2.7.0
+  POLARS_FEATURES: "sql,ndarray,lazy,serde,json,parquet"
 
 jobs:
   rust-check:
@@ -65,7 +66,7 @@ jobs:
           rm libtorch.zip
 
       - name: Run cargo test
-        run: cargo test --verbose
+        run: cargo test --verbose --no-default-features --features "polars/${POLARS_FEATURES}"
         env:
           LIBTORCH: ${{ env.LIBTORCH }}
           LD_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$LD_LIBRARY_PATH
@@ -74,4 +75,4 @@ jobs:
         run: rustup component add clippy
 
       - name: Run cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --no-default-features --features "polars/${POLARS_FEATURES}" -- -D warnings
