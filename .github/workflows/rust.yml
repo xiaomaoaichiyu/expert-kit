@@ -6,9 +6,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  LIBTORCH: ${{ github.workspace }}/libtorch  # 将 libtorch 解压到项目目录下
+  LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
+  LIBTORCH: ${{ github.workspace }}/opt/torch/libtorch
   RUSTUP_TOOLCHAIN: nightly
-  TORCH_VERSION: 2.7.0  # 添加PyTorch版本变量
+  TORCH_VERSION: 2.7.0
 
 jobs:
   rust-check:
@@ -35,7 +36,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-target-
 
-      - name: Cache LibTorch
+      - name: Cache libtorch
+        id: cache-libtorch
         uses: actions/cache@v4
         with:
           path: ${{ env.LIBTORCH }}
@@ -46,7 +48,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpq-dev
+          sudo apt-get install -y build-essential libpq-dev pkg-config
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -55,14 +57,17 @@ jobs:
           override: true
 
       - name: Download and extract LibTorch (if cache miss)
-        if: steps.cache-LibTorch.outputs.cache-hit != 'true'
+        if: steps.cache-libtorch.outputs.cache-hit != 'true'
         run: |
-          curl -sSL https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${{ env.TORCH_VERSION }}+cpu.zip  --output libtorch.zip
-          unzip -q libtorch.zip
-          mv libtorch $LIBTORCH
+          curl -sSL https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${{ env.TORCH_VERSION }}%2Bcpu.zip  --output libtorch.zip
+          unzip -q libtorch.zip -d ${{ env.LIBTORCH_BASE_DIR }}
+          rm libtorch.zip
 
       - name: Run cargo test
         run: cargo test --verbose
+        env:
+          LIBTORCH: ${{ github.workspace }}/opt/torch/
+          LD_LIBRARY_PATH: ${{ github.workspace }}/libtorch/lib:$LD_LIBRARY_PATH
 
       - name: Install Clippy
         run: rustup component add clippy
