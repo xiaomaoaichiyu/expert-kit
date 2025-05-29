@@ -10,7 +10,6 @@ env:
   LIBTORCH: ${{ github.workspace }}/opt/torch/libtorch
   RUSTUP_TOOLCHAIN: nightly
   TORCH_VERSION: 2.7.0
-  POLARS_FEATURES: "sql,ndarray,lazy,serde,json,parquet"
 
 jobs:
   rust-check:
@@ -65,8 +64,14 @@ jobs:
           unzip -q libtorch.zip -d ${{ env.LIBTORCH_BASE_DIR }}
           rm libtorch.zip
 
+      - name: Configure polars without simd
+        run: |
+          mkdir -p .cargo
+          echo '[patch.crates-io]' > .cargo/config.toml
+          echo 'polars = { version = "0.46.0", default-features = false, features = ["sql", "ndarray", "lazy", "serde", "json", "parquet"] }' >> .cargo/config.toml
+
       - name: Run cargo test
-        run: cargo test --verbose --no-default-features --features "polars/${POLARS_FEATURES}"
+        run: cargo test --verbose
         env:
           LIBTORCH: ${{ env.LIBTORCH }}
           LD_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$LD_LIBRARY_PATH
