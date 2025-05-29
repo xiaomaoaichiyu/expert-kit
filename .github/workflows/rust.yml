@@ -6,25 +6,66 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  LIBTORCH: ${{ github.workspace }}/libtorch  # 将 libtorch 解压到项目目录下
+  RUSTUP_TOOLCHAIN: nightly
+  TORCH_VERSION: 2.7.0  # 添加PyTorch版本变量
 
 jobs:
   rust-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-
+
+      - name: Cache LibTorch
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LIBTORCH }}
+          key: ${{ runner.os }}-libtorch-${{ env.TORCH_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-libtorch-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           override: true
-      
+
+      - name: Download and extract LibTorch (if cache miss)
+        if: steps.cache-LibTorch.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${{ env.TORCH_VERSION }}+cpu.zip  --output libtorch.zip
+          unzip -q libtorch.zip
+          mv libtorch $LIBTORCH
+
       - name: Run cargo test
         run: cargo test --verbose
+
       - name: Install Clippy
         run: rustup component add clippy
+
       - name: Run cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
