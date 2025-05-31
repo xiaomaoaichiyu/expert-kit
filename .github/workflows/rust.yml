@@ -64,12 +64,6 @@ jobs:
           unzip -q libtorch.zip -d ${{ env.LIBTORCH_BASE_DIR }}
           rm libtorch.zip
 
-      - name: Configure polars without simd
-        run: |
-          mkdir -p .cargo
-          echo '[patch.crates-io]' > .cargo/config.toml
-          echo 'polars = { version = "0.46.0", default-features = false, features = ["sql", "ndarray", "lazy", "serde", "json", "parquet"] }' >> .cargo/config.toml
-
       - name: Run cargo test
         run: cargo test --verbose
         env:
