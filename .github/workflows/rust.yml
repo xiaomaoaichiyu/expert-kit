@@ -14,7 +14,7 @@ env:
 
 jobs:
   rust-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     name: Run Rust Tests and Clippy
 
     steps:
@@ -63,8 +63,9 @@ jobs:
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: nightly-2024-12-31
           override: true
+          components: rustfmt, clippy
 
       - name: Download and extract LibTorch (if cache miss)
         if: steps.cache-libtorch.outputs.cache-hit != 'true'
@@ -114,9 +115,6 @@ jobs:
 
       - name: Run cargo test
         run: cargo test --verbose
-
-      - name: Install Clippy
-        run: rustup component add clippy
 
       - name: Run cargo clippy
         run: cargo clippy --all-targets
