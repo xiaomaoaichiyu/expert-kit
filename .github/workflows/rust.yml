@@ -10,7 +10,6 @@ env:
   ONNXRUNTIME_VERSION: 1.20.1
   POLARS_VERSION: "0.46.0"
   
-  # Common paths
   LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
 
@@ -18,17 +17,6 @@ jobs:
   rust-check:
     runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
-    env:
-      # libtorch env
-      LIBTORCH: ${{ env.LIBTORCH_BASE_DIR }}/libtorch
-      DYLD_FALLBACK_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$DYLD_FALLBACK_LIBRARY_PATH
-      LD_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$LD_LIBRARY_PATH
-      
-      # onnxruntime env
-      ONNXRUNTIME_HOME: ${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}
-      CPATH: ${{ env.ONNXRUNTIME_HOME }}/include:$CPATH
-      LIBRARY_PATH: ${{ env.ONNXRUNTIME_HOME }}/lib:$LIBRARY_PATH
-      ORT_DYLIB_PATH: ${{ env.ONNXRUNTIME_HOME }}/lib/libonnxruntime.so
 
     steps:
       - name: Checkout code
@@ -100,6 +88,15 @@ jobs:
         run: |
           set -e
           bash ./lfs_download_script.sh
+
+      - name: Set up environment variables
+        run: |
+          echo "LIBTORCH=${{ env.LIBTORCH_BASE_DIR }}/libtorch" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=${{ env.LIBTORCH_BASE_DIR }}/libtorch/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "ONNXRUNTIME_HOME=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}" >> $GITHUB_ENV
+          echo "CPATH=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}/include:$CPATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+          echo "ORT_DYLIB_PATH=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}/lib/libonnxruntime.so" >> $GITHUB_ENV
 
       - name: Configure polars without simd
         run: |
