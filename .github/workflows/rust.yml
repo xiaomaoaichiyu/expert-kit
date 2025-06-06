@@ -6,15 +6,29 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
-  LIBTORCH: ${{ github.workspace }}/opt/torch/libtorch
-  RUSTUP_TOOLCHAIN: nightly
   TORCH_VERSION: 2.7.0
+  ONNXRUNTIME_VERSION: 1.20.1
+  POLARS_VERSION: "0.46.0"
+  
+  # Common paths
+  LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
+  ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
 
 jobs:
   rust-check:
     runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
+    env:
+      # libtorch env
+      LIBTORCH: ${{ env.LIBTORCH_BASE_DIR }}/libtorch
+      DYLD_FALLBACK_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$DYLD_FALLBACK_LIBRARY_PATH
+      LD_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$LD_LIBRARY_PATH
+      
+      # onnxruntime env
+      ONNXRUNTIME_HOME: ${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}
+      CPATH: ${{ env.ONNXRUNTIME_HOME }}/include:$CPATH
+      LIBRARY_PATH: ${{ env.ONNXRUNTIME_HOME }}/lib:$LIBRARY_PATH
+      ORT_DYLIB_PATH: ${{ env.ONNXRUNTIME_HOME }}/lib/libonnxruntime.so
 
     steps:
       - name: Checkout code
@@ -45,6 +59,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-libtorch-
 
+      - name: Cache onnxruntime
+        id: cache-onnxruntime
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ONNXRUNTIME_BASE_DIR }}
+          key: ${{ runner.os }}-onnxruntime-${{ env.ONNXRUNTIME_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-onnxruntime-
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -63,6 +86,26 @@ jobs:
           curl -sSL https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${{ env.TORCH_VERSION }}%2Bcpu.zip  --output libtorch.zip
           unzip -q libtorch.zip -d ${{ env.LIBTORCH_BASE_DIR }}
           rm libtorch.zip
+      
+      - name: Download and extract onnxruntime (if cache miss)
+        if: steps.cache-onnxruntime.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ${{ env.ONNXRUNTIME_BASE_DIR }}
+          curl -sSL https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ONNXRUNTIME_VERSION }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}.tgz --output onnxruntime.tgz
+          tar -xzf onnxruntime.tgz -C ${{ env.ONNXRUNTIME_BASE_DIR }}
+          rm onnxruntime.tgz
+      
+      # TODO: cache lfs files
+      - name: Download and trace lfs files
+        run: |
+          set -e
+          bash ./lfs_download_script.sh
+
+      - name: Configure polars without simd
+        run: |
+          mkdir -p .cargo
+          echo '[patch.crates-io]' > .cargo/config.toml
+          echo 'polars = { version = "${{ env.POLARS_VERSION }}", default-features = false, features = ["sql", "ndarray", "lazy", "serde", "json", "parquet"] }' >> .cargo/config.toml
 
       - name: Run cargo test
         run: cargo test --verbose
@@ -74,4 +117,4 @@ jobs:
         run: rustup component add clippy
 
       - name: Run cargo clippy
-        run: cargo clippy --all-targets --no-default-features --features "polars/${POLARS_FEATURES}" -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
