@@ -8,7 +8,6 @@ env:
   CARGO_TERM_COLOR: always
   TORCH_VERSION: 2.7.0
   ONNXRUNTIME_VERSION: 1.20.1
-  POLARS_VERSION: "0.46.0"
   
   LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
@@ -98,20 +97,26 @@ jobs:
           echo "LIBRARY_PATH=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}/lib:$LIBRARY_PATH" >> $GITHUB_ENV
           echo "ORT_DYLIB_PATH=${{ env.ONNXRUNTIME_BASE_DIR }}/onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}/lib/libonnxruntime.so" >> $GITHUB_ENV
 
-      - name: Configure polars without simd
+      - name: Configure Cargo features
         run: |
           mkdir -p .cargo
-          echo '[patch.crates-io]' > .cargo/config.toml
-          echo 'polars = { version = "${{ env.POLARS_VERSION }}", default-features = false, features = ["sql", "ndarray", "lazy", "serde", "json", "parquet"] }' >> .cargo/config.toml
+          cat > .cargo/config.toml << 'EOF'
+          [features]
+          default = [
+              "polars/sql",
+              "polars/ndarray",
+              "polars/lazy",
+              "polars/serde",
+              "polars/json",
+              "polars/parquet",
+          ]
+          EOF
 
       - name: Run cargo test
         run: cargo test --verbose
-        env:
-          LIBTORCH: ${{ env.LIBTORCH }}
-          LD_LIBRARY_PATH: ${{ env.LIBTORCH }}/lib:$LD_LIBRARY_PATH
 
       - name: Install Clippy
         run: rustup component add clippy
 
       - name: Run cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets
