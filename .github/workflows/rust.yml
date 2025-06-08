@@ -55,6 +55,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-onnxruntime-
 
+      - name: Check LFS files status
+        id: check-lfs
+        run: |
+          # Get list of unsynced LFS files
+          LFS_FILES=$(git lfs ls-files | awk '$2 == "-" {print $3}')
+          if [ -n "$LFS_FILES" ]; then
+            echo "need_download=true" >> $GITHUB_OUTPUT
+            echo "files=$LFS_FILES" >> $GITHUB_OUTPUT
+          else
+            echo "need_download=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Cache LFS files
+        id: cache-lfs
+        if: steps.check-lfs.outputs.need_download == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ek-computation/src/onnx/models
+            ek-computation/src/onnx/weights
+          key: ${{ runner.os }}-lfs-files-${{ steps.check-lfs.outputs.files }}
+          restore-keys: |
+            ${{ runner.os }}-lfs-files-
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -83,8 +107,8 @@ jobs:
           tar -xzf onnxruntime.tgz -C ${{ env.ONNXRUNTIME_BASE_DIR }}
           rm onnxruntime.tgz
       
-      # TODO: cache lfs files
       - name: Download and trace lfs files
+        if: steps.check-lfs.outputs.need_download == 'true' && steps.cache-lfs.outputs.cache-hit != 'true'
         run: |
           set -e
           bash ./lfs_download_script.sh
