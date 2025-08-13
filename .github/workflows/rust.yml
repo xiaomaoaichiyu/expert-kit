@@ -55,29 +55,44 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-onnxruntime-
 
-      - name: Check LFS files status
-        id: check-lfs
+      - name: Get LFS files list
+        id: lfs-files
         run: |
-          # Get list of unsynced LFS files
-          LFS_FILES=$(git lfs ls-files | awk '$2 == "-" {print $3}')
-          if [ -n "$LFS_FILES" ]; then
-            echo "need_download=true" >> $GITHUB_OUTPUT
-            echo "files=$LFS_FILES" >> $GITHUB_OUTPUT
-          else
-            echo "need_download=false" >> $GITHUB_OUTPUT
+          # Get list of unsynced LFS files and convert to array
+          mapfile -t LFS_FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
+          if [ ${#LFS_FILES[@]} -gt 0 ]; then
+            # Create a JSON array of files for the next step
+            printf '{"files":%s}' "$(printf '%s\n' "${LFS_FILES[@]}" | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Cache LFS files
-        id: cache-lfs
-        if: steps.check-lfs.outputs.need_download == 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ek-computation/src/onnx/models
-            ek-computation/src/onnx/weights
-          key: ${{ runner.os }}-lfs-files-${{ steps.check-lfs.outputs.files }}
-          restore-keys: |
-            ${{ runner.os }}-lfs-files-
+      - name: Cache and download LFS files
+        if: steps.lfs-files.outputs.files != ''
+        run: |
+          # Parse the JSON array of files
+          FILES=($(echo '${{ steps.lfs-files.outputs.files }}' | jq -r '.[]'))
+          
+          for file in "${FILES[@]}"; do
+            echo "Processing file: $file"
+            
+            # Create cache key for this file
+            CACHE_KEY="${{ runner.os }}-lfs-file-$(echo "$file" | sha256sum | cut -d' ' -f1)"
+            
+            # Try to restore from cache
+            if [ -f "$file" ]; then
+              echo "File already exists: $file"
+              continue
+            fi
+            
+            # Create directory if it doesn't exist
+            mkdir -p "$(dirname "$file")"
+            
+            # Download file
+            echo "Downloading: $file"
+            curl -L "https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev/$file?download=true" -o "$file"
+            
+            # Add to git
+            git add "$file"
+          done
 
       - name: Install system dependencies
         run: |
@@ -107,12 +122,6 @@ jobs:
           tar -xzf onnxruntime.tgz -C ${{ env.ONNXRUNTIME_BASE_DIR }}
           rm onnxruntime.tgz
       
-      - name: Download and trace lfs files
-        if: steps.check-lfs.outputs.need_download == 'true' && steps.cache-lfs.outputs.cache-hit != 'true'
-        run: |
-          set -e
-          bash ./lfs_download_script.sh
-
       - name: Set up environment variables
         run: |
           echo "LIBTORCH=${{ env.LIBTORCH_BASE_DIR }}/libtorch" >> $GITHUB_ENV
