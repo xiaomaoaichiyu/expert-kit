@@ -68,21 +68,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - name: Rust cache (registry, git, target)
+        uses: Swatinem/rust-cache@v2
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-target-
+          workspaces: . -> target
+          cache-on-failure: true
 
       - name: Cache libtorch
         id: cache-libtorch
