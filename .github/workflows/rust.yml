@@ -26,10 +26,14 @@ jobs:
         run: |
           mapfile -t FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
           if [ ${#FILES[@]} -eq 0 ]; then
-            echo 'files_json=[]' >> $GITHUB_OUTPUT
+            echo 'files_json=[]' >> "$GITHUB_OUTPUT"
           else
-            json=$(printf '%s\n' "${FILES[@]}" | jq -R . | jq -s .)
-            echo "files_json=$json" >> $GITHUB_OUTPUT
+            json=$(printf '%s\n' "${FILES[@]}" | jq -R -s -c 'split("\n")[:-1]')
+            {
+              echo 'files_json<<EOF'
+              echo "$json"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
           fi
 
   lfs-cache:
