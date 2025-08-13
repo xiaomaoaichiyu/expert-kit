@@ -11,11 +11,54 @@ env:
   
   LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
+  LFS_BASE_URL: https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev
 
 jobs:
+  discover-lfs:
+    runs-on: ubuntu-24.04
+    outputs:
+      files_json: ${{ steps.gen.outputs.files_json }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Generate LFS file matrix
+        id: gen
+        run: |
+          mapfile -t FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo 'files_json=[]' >> $GITHUB_OUTPUT
+          else
+            json=$(printf '%s\n' "${FILES[@]}" | jq -R . | jq -s .)
+            echo "files_json=$json" >> $GITHUB_OUTPUT
+          fi
+
+  lfs-cache:
+    runs-on: ubuntu-24.04
+    needs: discover-lfs
+    if: needs.discover-lfs.outputs.files_json != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJson(needs.discover-lfs.outputs.files_json) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Restore cache for one LFS file
+        id: cache-one
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.file }}
+          key: ${{ runner.os }}-lfs-${{ matrix.file }}
+      - name: Download LFS file if cache miss
+        if: steps.cache-one.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$(dirname '${{ matrix.file }}')"
+          curl -L "${{ env.LFS_BASE_URL }}/${{ matrix.file }}?download=true" -o "${{ matrix.file }}"
+
   rust-check:
     runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
+    needs: [lfs-cache]
 
     steps:
       - name: Checkout code
@@ -55,49 +98,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-onnxruntime-
 
-      - name: Get LFS files list
-        id: lfs-files
-        run: |
-          # Get list of unsynced LFS files and convert to array
-          mapfile -t LFS_FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
-          if [ ${#LFS_FILES[@]} -gt 0 ]; then
-            # Create a JSON array of files for the next step
-            printf '{"files":%s}' "$(printf '%s\n' "${LFS_FILES[@]}" | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Cache and download LFS files
-        if: steps.lfs-files.outputs.files != ''
-        run: |
-          # Parse the JSON array of files
-          FILES=($(echo '${{ steps.lfs-files.outputs.files }}' | jq -r '.[]'))
-          
-          for file in "${FILES[@]}"; do
-            echo "Processing file: $file"
-            
-            # Create cache key for this file
-            CACHE_KEY="${{ runner.os }}-lfs-file-$(echo "$file" | sha256sum | cut -d' ' -f1)"
-            
-            # Try to restore from cache
-            if [ -f "$file" ]; then
-              echo "File already exists: $file"
-              continue
-            fi
-            
-            # Create directory if it doesn't exist
-            mkdir -p "$(dirname "$file")"
-            
-            # Download file
-            echo "Downloading: $file"
-            curl -L "https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev/$file?download=true" -o "$file"
-            
-            # Add to git
-            git add "$file"
-          done
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libpq-dev pkg-config libprotobuf-dev protobuf-compiler
+          sudo apt-get install -y build-essential libpq-dev pkg-config libprotobuf-dev protobuf-compiler jq
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
