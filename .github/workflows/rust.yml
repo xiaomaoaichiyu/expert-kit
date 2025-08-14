@@ -11,7 +11,7 @@ env:
   
   LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
-  LFS_BASE_URL: https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev
+  LFS_BASE_URL: https://media.githubusercontent.com/media/${{ github.repository }}/${{ github.ref_name }}
 
 jobs:
   discover-lfs:
@@ -60,13 +60,13 @@ jobs:
           curl -fL "${{ env.LFS_BASE_URL }}/${{ matrix.file }}?download=true" -o "${{ matrix.file }}"
           [ -s "${{ matrix.file }}" ] || { echo "empty/bad file: ${{ matrix.file }}"; exit 1; }
       - name: Upload LFS artifact
-        if: steps.cache-one.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: lfs-${{ hashFiles(matrix.file) }}
+          name: lfs-${{ runner.os }}-${{ hashFiles(matrix.file) }}-${{ github.run_attempt }}
           path: ${{ matrix.file }}
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
   rust-check:
     runs-on: ubuntu-24.04
@@ -83,6 +83,23 @@ jobs:
           pattern: lfs-*
           path: .
           merge-multiple: true
+
+      - name: Verify LFS files
+        if: always()
+        run: |
+          set -e
+          # Build list from discover-lfs output (may be empty)
+          FILES=$(jq -r '.[]?' <<< '${{ needs.discover-lfs.outputs.files_json || '[]' }}')
+          if [ -z "$FILES" ]; then
+            echo "No LFS files to verify"; exit 0; fi
+          echo "$FILES" | while read -r f; do
+            [ -z "$f" ] && continue
+            echo "Checking $f"
+            test -s "$f" || { echo "Missing/empty: $f"; exit 1; }
+            if grep -q "^version https://git-lfs.github.com" "$f" 2>/dev/null; then
+              echo "LFS pointer detected (not real file): $f"; exit 1;
+            fi
+          done
 
       - name: Rust cache (registry, git, target)
         uses: Swatinem/rust-cache@v2
