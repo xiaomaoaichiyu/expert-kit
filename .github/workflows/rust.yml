@@ -13,6 +13,7 @@ env:
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
   LFS_BASE_URL: https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev
 
+jobs:
   rust-check:
     runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
