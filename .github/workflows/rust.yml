@@ -11,95 +11,71 @@ env:
   
   LIBTORCH_BASE_DIR: ${{ github.workspace }}/opt/torch
   ONNXRUNTIME_BASE_DIR: ${{ github.workspace }}/opt/onnxruntime
-  LFS_BASE_URL: https://media.githubusercontent.com/media/${{ github.repository }}/${{ github.ref_name }}
-
-jobs:
-  discover-lfs:
-    runs-on: ubuntu-24.04
-    outputs:
-      files_json: ${{ steps.gen.outputs.files_json }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Generate LFS file matrix
-        id: gen
-        run: |
-          mapfile -t FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo 'files_json=[]' >> "$GITHUB_OUTPUT"
-          else
-            json=$(printf '%s\n' "${FILES[@]}" | jq -R -s -c 'split("\n")[:-1]')
-            {
-              echo 'files_json<<EOF'
-              echo "$json"
-              echo 'EOF'
-            } >> "$GITHUB_OUTPUT"
-          fi
-
-  lfs-cache:
-    runs-on: ubuntu-24.04
-    needs: discover-lfs
-    if: needs.discover-lfs.outputs.files_json != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        file: ${{ fromJson(needs.discover-lfs.outputs.files_json) }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Restore cache for one LFS file
-        id: cache-one
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.file }}
-          key: ${{ runner.os }}-lfs-${{ matrix.file }}
-      - name: Download LFS file if cache miss
-        if: steps.cache-one.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p "$(dirname '${{ matrix.file }}')"
-          curl -fL "${{ env.LFS_BASE_URL }}/${{ matrix.file }}?download=true" -o "${{ matrix.file }}"
-          [ -s "${{ matrix.file }}" ] || { echo "empty/bad file: ${{ matrix.file }}"; exit 1; }
-      - name: Upload LFS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lfs-${{ runner.os }}-${{ hashFiles(matrix.file) }}-${{ github.run_attempt }}
-          path: ${{ matrix.file }}
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
+  LFS_BASE_URL: https://media.githubusercontent.com/media/expert-kit/expert-kit/refs/heads/dev
 
   rust-check:
     runs-on: ubuntu-24.04
     name: Run Rust Tests and Clippy
-    needs: [lfs-cache]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download LFS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: lfs-*
-          path: .
-          merge-multiple: true
+      - name: Install git-lfs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-lfs
+          git lfs install
 
-      - name: Verify LFS files
-        if: always()
+      - name: Compute LFS cache key
+        id: lfs
+        run: |
+          mapfile -t FILES < <(git lfs ls-files | awk '$2 == "-" {print $3}')
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "need=false" >> $GITHUB_OUTPUT
+            echo "key=${{ runner.os }}-lfs-empty" >> $GITHUB_OUTPUT
+            echo 'paths=' >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          HASH=$(printf '%s\n' "${FILES[@]}" | sort | sha256sum | cut -d' ' -f1)
+          echo "need=true" >> $GITHUB_OUTPUT
+          echo "key=${{ runner.os }}-lfs-${HASH}" >> $GITHUB_OUTPUT
+          {
+            echo 'paths<<EOF'
+            printf '%s\n' "${FILES[@]}"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Cache LFS files
+        id: cache-lfs
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.lfs.outputs.paths }}
+          key:  ${{ steps.lfs.outputs.key }}
+          restore-keys: |
+            ${{ runner.os }}-lfs-
+
+      - name: Download LFS files (if cache miss)
+        if: steps.lfs.outputs.need == 'true' && steps.cache-lfs.outputs.cache-hit != 'true'
         run: |
           set -e
-          # Build list from discover-lfs output (may be empty)
-          FILES=$(jq -r '.[]?' <<< '${{ needs.discover-lfs.outputs.files_json || '[]' }}')
-          if [ -z "$FILES" ]; then
-            echo "No LFS files to verify"; exit 0; fi
-          echo "$FILES" | while read -r f; do
+          while IFS= read -r f; do
             [ -z "$f" ] && continue
-            echo "Checking $f"
-            test -s "$f" || { echo "Missing/empty: $f"; exit 1; }
+            mkdir -p "$(dirname "$f")"
+            curl -fL "${LFS_BASE_URL}/$f?download=true" -o "$f"
+            test -s "$f" || { echo "empty/bad: $f"; exit 1; }
+          done <<< "${{ steps.lfs.outputs.paths }}"
+
+      - name: Verify LFS files
+        run: |
+          set -e
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            test -s "$f" || { echo "Missing: $f"; exit 1; }
             if grep -q "^version https://git-lfs.github.com" "$f" 2>/dev/null; then
-              echo "LFS pointer detected (not real file): $f"; exit 1;
+              echo "LFS pointer detected: $f"; exit 1
             fi
-          done
+          done <<< "${{ steps.lfs.outputs.paths }}"
 
       - name: Rust cache (registry, git, target)
         uses: Swatinem/rust-cache@v2
