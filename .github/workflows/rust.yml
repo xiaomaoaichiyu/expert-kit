@@ -60,6 +60,7 @@ jobs:
           curl -fL "${{ env.LFS_BASE_URL }}/${{ matrix.file }}?download=true" -o "${{ matrix.file }}"
           [ -s "${{ matrix.file }}" ] || { echo "empty/bad file: ${{ matrix.file }}"; exit 1; }
       - name: Upload LFS artifact
+        if: steps.cache-one.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: lfs-${{ hashFiles(matrix.file) }}
