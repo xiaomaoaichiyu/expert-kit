@@ -165,13 +165,16 @@ jobs:
     runs-on: ubuntu-24.04
     name: Build and push Docker image (dev)
     needs: rust-check
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'dev'
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    # if: github.event_name == 'pull_request' && github.event.action == 
+    # 'closed' && github.event.pull_request.merged == true && github.event.
+    # pull_request.base.ref == 'dev'
 
     steps:
       - name: Checkout merged commit
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+        # with:
+        #   ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
